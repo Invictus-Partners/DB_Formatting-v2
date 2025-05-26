@@ -22,21 +22,73 @@ def build_hosts_df(
     try:
         df_host_specs = pd.read_json(physical_hosts_json)
     except (FileNotFoundError, ValueError):
-        # Physical Hosts.json missing or invalid: return empty hosts table
-        # Define base headers for hosts
-        desired_ids = [
-            "cluster_name", "physical_device", "number_of_vms",
-            "operating_system_type", "esx_version", "manufacturer",
-            "model", "cpu_model", "total_number_of_processors",
-            "cores_per_cpu", "total_number_of_cores", "oracle_core_factor",
-        ]
-        # Option columns from VM table (use df_virtual_devices passed into builder)
-        option_cols = [
-            c for c in df_virtual_devices.columns
-            if c not in ("virtual_device", "physical_device")
-        ]
-        headers = desired_ids + sorted(option_cols)
-        return pd.DataFrame(columns=headers)
+        # Physical Hosts.json missing or invalid: try to load declaration CSV fallback
+        declaration_csv = Path("input/host_declaration_template.csv")
+        if declaration_csv.exists():
+            print("⚠️  Physical host JSON missing — using declaration CSV instead")
+            df_host_specs = pd.read_csv(declaration_csv)
+            # Normalize column headers: lowercase and strip whitespace
+            df_host_specs.columns = df_host_specs.columns.str.strip().str.lower()
+
+            # Rename using normalized column names
+            df_host_specs.rename(columns={
+                "virtual device": "virtual_device",
+                "physical host": "physical_device",
+                "model": "model_y",
+                "manufacturer": "manufacturer",
+                "cpu model": "cpu_model",
+                "# processors": "total_number_of_processors",
+                "cores per cpu": "cores_per_cpu",
+                "total cores": "total_number_of_cores"
+            }, inplace=True)
+            df_host_specs["device_name"] = df_host_specs["physical_device"]
+            df_host_specs["model"] = df_host_specs["model_y"]
+            df_host_specs["virtualization_type"] = "declared"
+            df_host_specs["cluster_name"] = "DECLARED"
+            df_host_specs["operating_system_type"] = "unknown"
+            df_host_specs["esx_version"] = "N/A"
+            df_host_specs["data_source"] = "declared"
+            df_host_specs["model"] = df_host_specs.get("model_y", "")
+
+            # Merge declared physical_device values into virtual_devices
+            df_virtual_devices = df_virtual_devices.merge(
+                df_host_specs[["virtual_device", "physical_device"]],
+                on="virtual_device",
+                how="left"
+            )
+
+            # Compute number_of_vms as count of VMs per host
+            vm_counts = df_virtual_devices.groupby("physical_device")["virtual_device"].count().reset_index()
+            vm_counts.rename(columns={"virtual_device": "number_of_vms"}, inplace=True)
+            df_host_specs = df_host_specs.drop(columns=["number_of_vms"], errors="ignore").merge(vm_counts, on="physical_device", how="left")
+
+            if df_virtual_devices["physical_device"].isna().any():
+                print("⚠️ Some virtual devices did not map to a declared physical host")
+            # Ensure all expected host spec columns exist when using declaration CSV
+            for col in [
+                "device_name", "virtualization_type", "cluster_name",
+                "operating_system_type", "esx_version",
+                "total_number_of_processors", "cores_per_cpu", "total_number_of_cores",
+                "total_number_of_threads", "cpu_model", "oracle_core_factor",
+                "manufacturer", "model", "number_of_vms"
+            ]:
+                if col not in df_host_specs.columns:
+                    df_host_specs[col] = ""
+        else:
+            # Return empty host sheet with standard columns
+            print("⚠️ No physical host data or declaration file found – this is required for final calculation!!!")
+            desired_ids = [
+                "cluster_name", "physical_device", "number_of_vms",
+                "operating_system_type", "esx_version", "manufacturer",
+                "model", "cpu_model", "total_number_of_processors",
+                "cores_per_cpu", "total_number_of_cores", "oracle_core_factor",
+            ]
+            option_cols = [
+                c for c in df_virtual_devices.columns
+                if c not in ("virtual_device", "physical_device")
+            ]
+            headers = desired_ids + sorted(option_cols)
+            return pd.DataFrame(columns=headers)
 
     # --- VMware core‑count sanity fix -------------------------------------
     def _fix_vmware_row(r: pd.Series) -> pd.Series:
@@ -131,18 +183,25 @@ def build_hosts_df(
             df_virtual_devices[col], errors="coerce"
         ).fillna(0).astype(int)
 
-    option_cols = [
-        c for c in df_virtual_devices.columns
-        if c not in (
-            ["virtual_device", "physical_device", "virtualization_type",
-             "operating_system_type", "domain", "pool", "cpu_model"] + sizing_cols_vm
-        )
-    ]
+    excluded_cols = (
+        ["virtual_device", "physical_device", "virtualization_type",
+         "operating_system_type", "domain", "pool", "cpu_model",
+         "number_of_virtual_processors", "number_of_virtual_cores", "number_of_virtual_threads"] + sizing_cols_vm
+    )
+
+    option_cols = [c for c in df_virtual_devices.columns if c not in excluded_cols]
 
     # 2‑C  convert symbols → priority for aggregation
     df_prior = df_virtual_devices.copy()
     for col in option_cols:
-        df_prior[col] = df_prior[col].map(SYM2PRIO).fillna(0).astype(int)
+        if col in df_prior.columns and isinstance(SYM2PRIO, dict):
+            try:
+                df_prior[col] = df_prior[col].astype(str).map(SYM2PRIO).fillna(0).astype(int)
+            except Exception:
+                print(f"⚠️ Failed mapping column '{col}', assigning 0")
+                df_prior[col] = 0
+        else:
+            df_prior[col] = 0
 
     grouped = df_prior.groupby("physical_device", as_index=False)
 
@@ -163,10 +222,24 @@ def build_hosts_df(
         .merge(df_host_specs, on="physical_device", how="left")
     )
 
+    if "cluster_name" in df_host_specs.columns:
+        df_hosts["data_source"] = df_hosts["physical_device"].map(
+            df_host_specs.set_index("physical_device")["cluster_name"]
+        ).fillna("discovered").apply(lambda x: "declared" if x == "DECLARED" else "discovered")
+    else:
+        df_hosts["data_source"] = "discovered"
+
     # convert priorities back to symbols only for columns present
     for col in option_cols:
-        if col in df_hosts.columns:
-            df_hosts[col] = df_hosts[col].map(PRIO2SYM)
+        if (
+            col in df_hosts.columns
+            and df_hosts[col].dtype in ["int64", "float64"]
+            and isinstance(PRIO2SYM, dict)
+        ):
+            try:
+                df_hosts[col] = df_hosts[col].map(PRIO2SYM)
+            except Exception:
+                print(f"⚠️ Failed converting priority to symbol for '{col}'")
 
     # Ensure all expected physical sizing fields exist
     expected_physical_cols = [
@@ -190,6 +263,10 @@ def build_hosts_df(
     if "oracle_core_factor_x" in df_hosts.columns and "oracle_core_factor_y" in df_hosts.columns:
         df_hosts["oracle_core_factor"] = df_hosts["oracle_core_factor_y"].fillna(df_hosts["oracle_core_factor_x"])
 
+    # Preserve declared model names from declaration CSV if model missing or all NaN
+    if "model" not in df_hosts.columns or df_hosts["model"].isna().all():
+        df_hosts["model"] = df_hosts.get("model_y", "")
+
     # tidy: place key host fields in specific order
     desired_ids = [
         "cluster_name",
@@ -197,6 +274,8 @@ def build_hosts_df(
         "number_of_vms",
         "operating_system_type",
         "esx_version",
+        "model_x",
+        "model_y",
         "manufacturer",
         "model",
         "cpu_model",
@@ -222,12 +301,11 @@ def write_hosts_sheet(
         df: pd.DataFrame,
         sheet_name: str = "Hosts"
 ) -> None:
-    if sheet_name in wb.sheetnames:
-        wb.remove(wb[sheet_name])
-    ws = wb.create_sheet(sheet_name)
-    for r in dataframe_to_rows(df, index=False, header=True):
-        ws.append(r)
-    ws.freeze_panes = ws["A2"]
+    ws = wb[sheet_name]
+    # Write DataFrame including header starting at cell B3
+    for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), start=3):
+        for c_idx, value in enumerate(row, start=2):  # Column B = 2
+            ws.cell(row=r_idx, column=c_idx, value=value)
 
 
 # ── 4. convenience front‑door ───────────────────────────────────────────────

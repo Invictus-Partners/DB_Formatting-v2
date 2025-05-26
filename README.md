@@ -16,10 +16,12 @@ DB_Formatting_v2/
 │  └─ clusters_tab.py         # builds “Clusters” tab
 ├─ input/
 │  ├─ Databases on Infrastructure.json       # DB instance metadata
-│  ├─ Options Usage Evidence.json            # per-DB option usage records
-│  ├─ Virtual Devices.json                   # VM inventory + raw_data blob
-│  ├─ Physical Hosts.json                    # Host inventory + raw_data blob
-│  └─ Virtualization Clusters.json           # cluster-level metadata & raw_data blob
+│  ├─ Options Usage Evidence.json            # Per-DB option usage records
+│  ├─ Virtual Devices.json                   # VM inventory (used by default)
+│  ├─ All Devices.json                       # Fallback if Virtual Devices.json is missing
+│  ├─ Physical Hosts.json                    # Host inventory (used by default)
+│  ├─ host_declaration_template.csv          # Manual fallback if Physical Hosts.json is missing
+│  └─ Virtualization Clusters.json           # Cluster-level VM group metadata
 ├─ driver.py                 # orchestrates all tabs & writes Excel
 ├─ oracle_audit_rollup.xlsx  # (auto-generated) final output
 └─ requirements.txt
@@ -29,7 +31,7 @@ DB_Formatting_v2/
 
 ## 🔑 What files you need
 
-Place these five JSON exports (exact filenames matter!) into `./input` before running:
+Place these five JSON exports from Licenseware (exact filenames matter!) into `./input` before running:
 
 1. **Databases on Infrastructure.json**  
    - One row per database instance.  
@@ -43,15 +45,26 @@ Place these five JSON exports (exact filenames matter!) into `./input` before ru
    - One row per VM.  
    - Fields: `device_name`, `physical_host`, OS, CPU, plus a `raw_data` JSON blob.
 
-4. **Physical Hosts.json**  
+5. **All Devices.json** *(fallback if Virtual Devices.json is missing)*  
+   - Full device export, often used as a backup when `Virtual Devices.json` is not available.  
+   - Tool will automatically substitute this if needed.
+
+6. **Physical Hosts.json**  
    - One row per physical host.  
    - Fields: `device_name` (host), cluster, CPU/socket count, plus `raw_data`.
 
-5. **Virtualization Clusters.json**  
+7. **Virtualization Clusters.json**  
    - One row per cluster.  
    - Fields: `device_name` (cluster name), `number_of_cluster_members`, `total_number_of_processors`, `total_number_of_cores`, `total_number_of_threads`, plus a `raw_data` JSON blob with cluster settings.
 
-> **Note:** if **Physical Hosts.json** is missing or invalid, the tool will still build an **empty** “Hosts” sheet (with headers only), so you can review VM-level data without failure.
+8. **host_declaration_template.csv** *(optional fallback)*  
+   - Used if `Physical Hosts.json` is missing.  
+   - Maps VMs (`virtual_device`) to physical servers (`physical_device`) manually.  
+   - Also includes fields like `manufacturer`, `model`, `cpu_model`, `# processors`, `cores per cpu`, and `total cores`.  
+   - Ensures host roll-up and option usage still work without full discovery.
+
+> **Note:** if **Physical Hosts.json** is missing or invalid, the tool will first check for `host_declaration_template.csv` and use it to complete the Hosts tab.  
+> If neither is found, the tool will build an **empty** “Hosts” sheet (headers only), allowing the run to complete without failure.
 
 ---
 
@@ -82,17 +95,24 @@ python driver.py
 
 This will:
 
-1. **Evidence** tab: import raw option-usage evidence.  
-2. **Database Details** tab: merge DB metadata + pivot option symbols.  
-3. **Virtual Devices** tab: join VM inventory + DB-derived option symbols.  
-4. **Hosts** tab: roll up VM symbols & sizing to each physical host.  
-5. **Clusters** tab: roll up host data into one row per cluster using Virtualization Clusters.json.
-
-When complete, opens (or updates) `oracle_audit_rollup.xlsx` with four worksheets.
+When complete, opens (or updates) `oracle_audit_rollup.xlsx` with the following worksheets:
+- **Summary** *(to be filled by analyst)*
+- **Entitlements** *(to be filled by analyst)*
+- **Clusters** tab: roll up host data into one row per cluster using Virtualization Clusters.json.
+- **Hosts** tab: roll up VM symbols & sizing to each physical host.
+- **Virtual Devices** tab: join VM inventory + DB-derived option symbols.
+- **Database Details** tab: merge DB metadata + pivot option symbols.
+- **Evidence** tab: import raw option-usage evidence.
 
 ---
 
-## 📝 Worksheet summaries
+## 📝 Worksheet summaries (auto-generated unless noted)
+
+ - **Summary**  
+   Placeholder tab for analyst to fill in final usage counts.
+
+ - **Entitlements**  
+   Placeholder tab for analyst to input entitlement quantities, metrics, and references.
 
 - **Evidence**  
   Lists every raw evidence row from `Options Usage Evidence.json`.

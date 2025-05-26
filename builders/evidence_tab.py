@@ -27,15 +27,11 @@ def build_evidence_tab(json_path: str, workbook: Workbook | None = None) -> Work
 
     # pick or create workbook
     wb = workbook or Workbook()
-    if "Evidence" in wb.sheetnames:
-        wb.remove(wb["Evidence"])
-    ws = wb.create_sheet("Evidence", 0)  # make it the first sheet
+    ws = wb["Evidence"]
 
-    # write the DataFrame
-    for r in dataframe_to_rows(df, index=False, header=True):
-        ws.append(r)
-
-    # optional: freeze header row, auto‑width later if you like
-    ws.freeze_panes = ws["A2"]
+    # write the DataFrame including header starting at cell B3
+    for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), start=3):
+        for c_idx, value in enumerate(row, start=2):  # Start at column B
+            ws.cell(row=r_idx, column=c_idx, value=value)
 
     return wb

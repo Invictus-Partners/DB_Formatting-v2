@@ -1,0 +1,4 @@
+Virtual Device,Physical Host,Manufacturer,Model,CPU Model,# Processors,Cores per CPU,Total Cores
+mpapxdbvp1,host-alpha,Dell,R740,Intel(R) Xeon(R) Gold 6128 CPU @ 3.40GHz,2,8,16
+mpapxdbvp1,host-alpha,Dell,R740,Intel(R) Xeon(R) Gold 6226R CPU @ 2.90GHz,2,8,16
+mpoemdbvp3,host-beta,HPE,DL380,Intel(R) Xeon(R) Gold 6226R CPU @ 2.90GHz,2,10,20

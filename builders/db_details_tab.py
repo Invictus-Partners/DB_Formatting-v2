@@ -150,14 +150,11 @@ def write_db_details_sheet(
     if "virtual_device" in df_to_write.columns:
         df_to_write.drop(columns=["virtual_device"], inplace=True)
 
-    if sheet_name in wb.sheetnames:
-        wb.remove(wb[sheet_name])
-    ws = wb.create_sheet(sheet_name)
+    ws = wb[sheet_name]
 
-    for row in dataframe_to_rows(df_to_write, index=False, header=True):
-        ws.append(row)
-
-    ws.freeze_panes = ws["A2"]
+    for r_idx, row in enumerate(dataframe_to_rows(df_to_write, index=False, header=True), start=3):
+        for c_idx, value in enumerate(row, start=2):  # Column B = 2
+            ws.cell(row=r_idx, column=c_idx, value=value)
 
 
 # ── 4.  Convenience `build()` front‑door  ────────────────────────────────────

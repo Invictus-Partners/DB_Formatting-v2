@@ -158,12 +158,10 @@ def write_clusters_sheet(
     df: pd.DataFrame,
     sheet_name: str = "Clusters",
 ) -> None:
-    if sheet_name in wb.sheetnames:
-        wb.remove(wb[sheet_name])
-    ws = wb.create_sheet(sheet_name)
-    for row in dataframe_to_rows(df, index=False, header=True):
-        ws.append(row)
-    ws.freeze_panes = ws["A2"]
+    ws = wb[sheet_name]
+    for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), start=3):
+        for c_idx, value in enumerate(row, start=2):  # Column B = 2
+            ws.cell(row=r_idx, column=c_idx, value=value)
 
 
 def build(

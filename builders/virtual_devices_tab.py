@@ -79,6 +79,28 @@ def build_virtual_devices_df(
 
     df = pd.read_json(virtual_devices_json)
 
+    # Fallback field mapping if loaded from All Devices.json
+    if "total_number_of_processors" in df.columns:
+        df["number_of_virtual_processors"] = (
+            df["number_of_virtual_processors"].fillna(df["total_number_of_processors"])
+            if "number_of_virtual_processors" in df.columns
+            else df["total_number_of_processors"]
+        )
+
+    if "total_number_of_threads" in df.columns:
+        df["number_of_virtual_threads"] = (
+            df["number_of_virtual_threads"].fillna(df["total_number_of_threads"])
+            if "number_of_virtual_threads" in df.columns
+            else df["total_number_of_threads"]
+        )
+
+    if "total_number_of_cores" in df.columns:
+        df["lscpu_total_threads"] = (
+            df["lscpu_total_threads"].fillna(df["total_number_of_cores"])
+            if "lscpu_total_threads" in df.columns
+            else df["total_number_of_cores"]
+        )
+
     # Filter to only allowed VMs if provided
     if allowed_vms is not None:
         df = df[df["device_name"].isin(allowed_vms)]
@@ -130,7 +152,7 @@ def build_virtual_devices_df(
 
     # ── drop redundant or duplicate columns ────────────────────────────────────
     df = df.drop(columns=[
-        "cpu_threads", "device_type", "manufacturer", "model",
+        "cpu_threads", "device_type", "manufacturer",
         "number_of_virtual_cores", "number_of_virtual_threads", "raw_data", "siblings"
     ], errors="ignore")
 
@@ -139,6 +161,7 @@ def build_virtual_devices_df(
         "physical_device",
         "virtual_device",
         "virtualization_type",
+        "model",
         "capped",
         "device_model",
         "device_manufacturer",
@@ -158,6 +181,8 @@ def build_virtual_devices_df(
     option_block = sorted([c for c in df.columns if c not in id_block])
 
     df = df[id_block + option_block].fillna("")
+    # Drop columns "operating_system_caption" and "source" before returning
+    df = df.drop(columns=["operating_system_caption", "source"], errors="ignore")
     return df
 
 
@@ -167,12 +192,11 @@ def write_virtual_devices_sheet(
     df: pd.DataFrame,
     sheet_name: str = "Virtual Devices",
 ) -> None:
-    if sheet_name in wb.sheetnames:
-        wb.remove(wb[sheet_name])
-    ws = wb.create_sheet(sheet_name)
-    for r in dataframe_to_rows(df, index=False, header=True):
-        ws.append(r)
-    ws.freeze_panes = ws["A2"]
+    ws = wb[sheet_name]
+    # Write DataFrame including header starting at cell B3
+    for r_idx, row in enumerate(dataframe_to_rows(df, index=False, header=True), start=3):
+        for c_idx, value in enumerate(row, start=2):  # Column B = 2
+            ws.cell(row=r_idx, column=c_idx, value=value)
 
 
 # ── convenience front‑door ───────────────────────────────────────────────────

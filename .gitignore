@@ -1,0 +1,12 @@
+# Ignore virtual environment
+venv/
+# Ignore final Excel output folder
+final/
+# Ignore temporary files
+*.pyc
+__pycache__/
+.DS_Store
+# Ignore backup or autosave files
+*~
+*.swp
+*.swo
