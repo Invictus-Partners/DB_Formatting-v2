@@ -9,4 +9,4 @@ __pycache__/
 # Ignore backup or autosave files
 *~
 *.swp
-*.swo
+*.swo.DS_Store
